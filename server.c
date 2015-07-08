@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <signal.h>
 #define PORTNUM 2300
 //#include "sockutil.h"
 void die(char *message) {
@@ -31,6 +32,17 @@ void copyData(int from, int to) {
         die("read");
 }
 
+pid_t child[10];
+void sig_handler(int signum) {
+    printf("%d Received signal %d\n", getpid(), signum);
+     
+    printf("KILL %d\n", child[0]);
+    kill(child[0],SIGKILL);
+
+    printf("KILL %d\n", child[1]);
+    kill(child[1],SIGKILL);
+}
+
 int main(int argc, char *argv[] ) {
 
     int process_num = 2;
@@ -53,24 +65,44 @@ int main(int argc, char *argv[] ) {
     serv.sin_port = htons(PORTNUM);           /* set the server port number */    
 
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    int on = 1;
+
+    int status = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
+                           (const char *) &on, sizeof(on));
+    if (-1 == status) 
+        die("setsockopt(...,SO_REUSEADDR,...)");
+    
     /* bind serv information to mysocket */
     bind(sockfd, (struct sockaddr *)&serv, sizeof(struct sockaddr));
-    listen(sockfd, 1);
+    listen(sockfd, 5);
 
     int conn;
+    int i;
+    for (i=0; i<process_num; i++) { 
+        printf("Starting %d %d ", i, getpid());
+        if (! (child[i] = fork()) ) {
+            while ( (conn = accept(sockfd, (struct sockaddr *)&dest, &socksize) ) >= 0 ) {
+                printf("%d --- recieve data\n", getpid());
+                copyData(conn, 1);
+                printf("%d --- done\n", getpid());
+                close(conn);
+            }
+            if (conn < 0) {
+                perror("accept");
+                return 1;
+            }
+        }
+        printf("PID %d\n", child[i]);
+    }
+    printf("Working\n");
+    signal(SIGINT, sig_handler);
+    signal(SIGTERM, sig_handler);
+    
+    pid_t wpid;
+    status = 0;
+    while ((wpid = wait(&status)) > 0);
 
-    while ( (conn = accept(sockfd, (struct sockaddr *)&dest, &socksize) ) >= 0 ) {
-        printf("Incoming connection from %s - sending welcome\n", inet_ntoa(dest.sin_addr));
-        printf("\nPID: %d\n", getpid());
-        printf("---recieve data\n");
-        copyData(conn, 1);
-        printf("---done\n");
-        close(conn);
-    }
-    if (conn < 0) {
-        perror("accept");
-        return 1;
-    }
+    //while(wait() > 0) { /* no-op */ ; }
     close(sockfd);
     printf("COMPLETED\n");
 
