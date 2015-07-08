@@ -1,8 +1,13 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <arpa/inet.h>
+#define PORTNUM 2300
 //#include "sockutil.h"
 void die(char *message) {
     perror(message);
@@ -27,8 +32,7 @@ void copyData(int from, int to) {
 }
 
 int main(int argc, char *argv[] ) {
-    struct sockaddr_un address;
-    int sock, conn;
+
     int process_num = 2;
     if (argc > 1) {
         if (atoi(argv[1]) <= 10 ) { 
@@ -38,52 +42,36 @@ int main(int argc, char *argv[] ) {
             printf("WARNING: max childs id 10\n");
         }
     }
-    printf("STARTING WITH %d childs...\n", process_num);
-    socklen_t addrLength;
+    
+    struct sockaddr_in dest, serv;
+    //int portnum = 50000;
+    socklen_t socksize = sizeof(struct sockaddr_in);
 
-    if((sock = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
-        perror("socket");
+    memset(&serv, 0, sizeof(serv));           /* zero the struct before filling the fields */
+    serv.sin_family = AF_INET;
+    serv.sin_addr.s_addr = htonl(INADDR_ANY); /* set our address to any interface */
+    serv.sin_port = htons(PORTNUM);           /* set the server port number */    
+
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    /* bind serv information to mysocket */
+    bind(sockfd, (struct sockaddr *)&serv, sizeof(struct sockaddr));
+    listen(sockfd, 1);
+
+    int conn;
+
+    while ( (conn = accept(sockfd, (struct sockaddr *)&dest, &socksize) ) >= 0 ) {
+        printf("Incoming connection from %s - sending welcome\n", inet_ntoa(dest.sin_addr));
+        printf("\nPID: %d\n", getpid());
+        printf("---recieve data\n");
+        copyData(conn, 1);
+        printf("---done\n");
+        close(conn);
+    }
+    if (conn < 0) {
+        perror("accept");
         return 1;
     }
-
-    unlink("./sample-socket");
-    address.sun_family = AF_UNIX;
-    strcpy(address.sun_path, "./sample-socket");
-
-    addrLength = sizeof(address.sun_family) +
-                strlen(address.sun_path);
-
-    if (bind(sock, (struct sockaddr *) &address, addrLength)) {
-        printf("failed");
-        return 0;
-    }
-
-    if (listen(sock, 5)) {
-        perror("listen");
-        return 1;
-    }
-    int i;
-    pid_t child;
-    for (i=0; i < process_num; i++) {
-        printf("Starting child number %d\n", i);
-        if (! (child = fork() ) ) { 
-            while ( (conn = accept(sock, (struct sockaddr *) &address, &addrLength) ) >= 0 ) {
-                printf("\nPID: %d\n", getpid());
-                printf("---recieve data\n");
-                copyData(conn, 1);
-                printf("---done\n");
-                close(conn);
-            }
-            if (conn < 0) {
-                perror("accept");
-                return 1;
-            } 
-            exit(0);
-        }
-        printf("PID %d\n", child);
-    }
-
-    close(sock);
+    close(sockfd);
     printf("COMPLETED\n");
 
     return 0;
