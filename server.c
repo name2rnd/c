@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <sys/prctl.h>
 #include <signal.h>
 #define PORTNUM 2300
 //#include "sockutil.h"
@@ -34,13 +35,19 @@ void copyData(int from, int to) {
 
 pid_t child[10];
 void sig_handler(int signum) {
-    printf("%d Received signal %d\n", getpid(), signum);
+    printf("\n%d Received signal %d\n", getpid(), signum);
      
     printf("KILL %d\n", child[0]);
     kill(child[0],SIGKILL);
 
     printf("KILL %d\n", child[1]);
     kill(child[1],SIGKILL);
+}
+
+void sig_die(int signum) {
+    printf("\n%d Received signal %d\n", getpid(), signum);
+    printf("\n%d Killed myself\n", getpid());
+    exit(0);
 }
 
 int main(int argc, char *argv[] ) {
@@ -81,6 +88,8 @@ int main(int argc, char *argv[] ) {
     for (i=0; i<process_num; i++) { 
         printf("Starting %d %d ", i, getpid());
         if (! (child[i] = fork()) ) {
+            signal(SIGINT, sig_die);
+            prctl(PR_SET_PDEATHSIG, SIGINT);
             while ( (conn = accept(sockfd, (struct sockaddr *)&dest, &socksize) ) >= 0 ) {
                 printf("%d --- recieve data\n", getpid());
                 copyData(conn, 1);
@@ -95,6 +104,7 @@ int main(int argc, char *argv[] ) {
         printf("PID %d\n", child[i]);
     }
     printf("Working\n");
+
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
     
